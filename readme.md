@@ -1,6 +1,7 @@
 Purpose of this application is to query Proxmox to get virtual machine configuration data for export. The currently supported format is CSV.
 
 Types of data returned:
+
 - Number of cores
 - Number and size of hard disks and bus types
 - And much more ....

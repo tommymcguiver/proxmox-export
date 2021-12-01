@@ -1,14 +1,13 @@
 import csv
 import logging
 import os
-import sys
-from io import StringIO
 
 from proxmoxer import ProxmoxAPI
 
 logging.basicConfig(
     level=logging.DEBUG, format="%(asctime)s %(levelname)s:%(name)s: %(message)s"
 )
+
 
 class Env:
     @staticmethod
