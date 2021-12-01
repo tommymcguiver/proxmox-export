@@ -87,7 +87,12 @@ class VMList:
         for node in self.node.get():
             for vm in self.proxmox.nodes(node).qemu.get():
                 vmid = int(vm["vmid"])
-                print(vmid)
+                status = vm['status']
+                if status != "running":
+                    print(f"skipping {vmid} status {status}")
+                    continue
+
+                print(f"processing {vmid}")
                 self.list.append(self.proxmox.nodes(node).qemu(vmid).config.get())
 
         self.normalise()
