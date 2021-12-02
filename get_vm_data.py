@@ -1,23 +1,25 @@
 import csv
 import logging
 import os
+import pp
 
 from proxmoxer import ProxmoxAPI
+from proxmoxer.core import ResourceException
 
 logging.basicConfig(
-    level=logging.DEBUG, format="%(asctime)s %(levelname)s:%(name)s: %(message)s"
+     level=logging.DEBUG, format="%(levelname)s:%(funcName)s:%(lineno)s: %(message)s"
 )
 
-
+logger = logging.getLogger(__name__)
 class Env:
     @staticmethod
-    def get_or(value: str, default: str):
+    def get_or(value: str, default: str) -> str:
         if value in os.environ and os.environ[value] != "":
             return value
         return default
 
     @staticmethod
-    def must_get(value: str, err: str):
+    def must_get(value: str, err: str) -> str:
         if value not in os.environ or os.environ[value] == "":
             raise ValueError(f"{err} in environment variable {value}")
         return os.environ[value]
@@ -68,6 +70,90 @@ class NodeList:
         return self.list
 
 
+class VM:
+    proxmox: any
+    extra_info: dict
+    config: dict
+    vmid: str
+    node: str
+    fs_info: dict
+
+    def __init__(self, vmid:str, node:str, proxmox: any):
+        if ((vmid or node or proxmox) == False):
+            raise ValueError("Invalid Argument")
+        self.proxmox = proxmox
+        self.node = node
+        self.vmid = vmid
+        self.config = {}
+        self.fs_info = {}
+
+    def get(self):
+        logger.info(f"Get data for {self.vmid}")
+        config = self.get_config()
+        extra_info = self.get_extra_info()
+
+        return {**config,**extra_info}
+
+    def get_config(self):
+        if self.config:
+            return self.config
+
+        self.config = self.proxmox.nodes(self.node).qemu(self.vmid).config.get()
+        return self.config
+
+    def has_agent(self):
+        return self.get_config()['agent'] == '1'
+
+    def get_fs_info(self):
+        if self.has_agent() == False:
+            return {}
+
+        if self.fs_info:
+            return self.fs_info
+
+        try:
+            self.fs_info = self.proxmox.get(f'nodes/{self.node}/qemu/{self.vmid}/agent/get-fsinfo')
+        except ResourceException as e:
+            logger.info(e)
+        return self.fs_info
+
+    def get_extra_info(self):
+        fsinfo = self.get_fs_info()
+
+        if fsinfo is not None:
+
+            if 'result' not in fsinfo:
+                return {}
+
+            logger.debug(fsinfo)
+            if 'error' in fsinfo['result']:
+                error = fsinfo['result']['error']
+                logger.error(f"error for vmid {self.vmid} class '{error['class']}' desc '{error['desc']}'")
+                return {}
+
+            for disk in fsinfo['result']:
+                logger.debug(disk)
+                if disk['type'] not in ['CDFS', 'UDF']:
+
+                    if 'total-bytes' not in disk:
+                        logger.debug(f"skipping {disk}")
+                        continue
+
+                    unused_bytes = disk['total-bytes'] -  disk['used-bytes']
+                    extrainfo = {
+                        'unused-bytes': unused_bytes,
+                        'used-bytes': disk['used-bytes'],
+                        'total-bytes': disk['total-bytes'],
+                        'precent-remaining': unused_bytes / disk['total-bytes'] * 100,
+                        'mountpoint': disk['mountpoint'],
+                        'filesystem': disk['type']
+                    }
+
+                    return extrainfo
+                else:
+                    logger.info(f"skipping {disk['mountpoint']} type {disk['type']}")
+        return {}
+
 class VMList:
     node: NodeList
     list: list
@@ -86,14 +172,15 @@ class VMList:
 
         for node in self.node.get():
             for vm in self.proxmox.nodes(node).qemu.get():
+                logger.debug(vm)
                 vmid = int(vm["vmid"])
                 status = vm['status']
                 if status != "running":
-                    print(f"skipping {vmid} status {status}")
+                    logger.info(f"skipping {vmid} status {status}")
                     continue
 
-                print(f"processing {vmid}")
-                self.list.append(self.proxmox.nodes(node).qemu(vmid).config.get())
+                data = VM(vmid, node, self.proxmox).get()
+                self.list.append(data)
 
         self.normalise()
 
@@ -143,8 +230,8 @@ class CSV:
                 writer.writeheader()
                 for item in data:
                     writer.writerow(item)
-        except IOError:
-            print("I/O error")
+        except IOError as e:
+            logger.exception("I/O error", e)
 
 
 def main():
