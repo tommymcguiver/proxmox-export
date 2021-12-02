@@ -7,7 +7,7 @@ from proxmoxer import ProxmoxAPI
 from proxmoxer.core import ResourceException
 
 logging.basicConfig(
-     level=logging.DEBUG, format="%(levelname)s:%(funcName)s:%(lineno)s: %(message)s"
+     level=logging.INFO, format="%(levelname)s:%(funcName)s:%(lineno)s: %(message)s"
 )
 
 logger = logging.getLogger(__name__)
@@ -114,7 +114,7 @@ class VM:
         try:
             self.fs_info = self.proxmox.get(f'nodes/{self.node}/qemu/{self.vmid}/agent/get-fsinfo')
         except ResourceException as e:
-            logger.info(e)
+            logger.info(f"Can't get fs info for vm {self.vmid} on node {self.node}. Exception {e.content}")
         return self.fs_info
 
     def get_extra_info(self):
@@ -151,7 +151,7 @@ class VM:
 
                     return extrainfo
                 else:
-                    logger.info(f"skipping {disk['mountpoint']} type {disk['type']}")
+                    logger.debug(f"skipping {disk['mountpoint']} type {disk['type']}")
         return {}
 
 class VMList:
