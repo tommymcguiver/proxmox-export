@@ -99,8 +99,16 @@ class VM:
     fs_info: dict
 
     def __init__(self, vmid: int, node: str, proxmox: ProxmoxAPI) -> None:
-        if (vmid or node or proxmox) == False:
+        if vmid is None:
             raise ValueError("Invalid Argument")
+
+        if node is None:
+            raise ValueError("Invalid Argument")
+
+        if proxmox is None:
+            raise ValueError("Invalid Argument")
+
+
         self.proxmox = proxmox
         self.node = node
         self.vmid = vmid
@@ -162,6 +170,9 @@ class VM:
                 )
                 return {}
 
+            sum_used_bytes = 0
+            sum_total_bytes = 0
+            sum_unused_bytes = 0
             for disk in fsinfo["result"]:
                 logger.debug(disk)
                 if disk["type"] not in ["CDFS", "UDF"]:
@@ -180,10 +191,21 @@ class VM:
                         * 100,
                         "filesystem": disk["type"],
                     }
+                    sum_used_bytes +=  int(disk["used-bytes"])
+                    sum_total_bytes += int(disk["total-bytes"])
+                    sum_unused_bytes += unused_bytes
+                    logger.debug({sum_used_bytes, sum_total_bytes, sum_unused_bytes})
 
                     extraList |= {disk["mountpoint"]: key_value_pair(extrainfo)}
                 else:
                     logger.debug(f"skipping {disk['mountpoint']} type {disk['type']}")
+
+        extraList |= {
+            'sum_used_bytes': sum_used_bytes,
+            'sum_total_bytes': sum_total_bytes,
+            'sum_unused_bytes': sum_unused_bytes,
+        }
+
         return extraList
 
 
