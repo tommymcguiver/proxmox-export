@@ -69,6 +69,14 @@ class NodeList:
             self.list.append(node["node"])
         return self.list
 
+def key_value_pair(data:dict) -> str:
+    acum:str = ""
+    for key in data:
+        if acum != "":
+            acum += ","
+        acum += f"{key}={data[key]}"
+
+    return acum
 
 class VM:
     proxmox: any
@@ -120,6 +128,8 @@ class VM:
     def get_extra_info(self):
         fsinfo = self.get_fs_info()
 
+        extraList = {}
+
         if fsinfo is not None:
 
             if 'result' not in fsinfo:
@@ -145,14 +155,13 @@ class VM:
                         'used-bytes': disk['used-bytes'],
                         'total-bytes': disk['total-bytes'],
                         'precent-remaining': unused_bytes / disk['total-bytes'] * 100,
-                        'mountpoint': disk['mountpoint'],
                         'filesystem': disk['type']
                     }
 
-                    return extrainfo
+                    extraList |= {disk['mountpoint']:key_value_pair(extrainfo)}
                 else:
                     logger.debug(f"skipping {disk['mountpoint']} type {disk['type']}")
-        return {}
+        return extraList
 
 class VMList:
     node: NodeList
