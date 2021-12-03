@@ -1,7 +1,8 @@
 import csv
+import distutils
 import logging
 import os
-from typing import Dict, List, Union
+from typing import Any, Dict, List, Union
 
 from proxmoxer import ProxmoxAPI
 from proxmoxer.core import ProxmoxAPI, ResourceException
@@ -15,10 +16,17 @@ logger = logging.getLogger(__name__)
 
 class Env:
     @staticmethod
-    def get_or(value: str, default: str) -> str:
+    def get_or(value: str, default: Union[str, bool]) -> Union[str, bool]:
         if value in os.environ and os.environ[value] != "":
-            return value
+            os.environ[value]
         return default
+
+    @staticmethod
+    def get_or_truth(value: str, default: bool) -> bool:
+        val = Env.get_or(value, default)
+        if type(val) == bool:
+            return val
+        return distutils.util.strtobool(Env.get_or(val, default))
 
     @staticmethod
     def must_get(value: str, err: str) -> str:
@@ -41,7 +49,7 @@ class Config:
         self.url = Env.must_get("PROX_URL", "Must provide URL")
         self.user = Env.must_get("PROX_USER", "Must provide user")
         self.password = Env.must_get("PROX_PASSWORD", "Must provide password")
-        self.verify_ssl = Env.get_or("PROX_SSL", False)
+        self.verify_ssl = Env.get_or_truth("PROX_SSL", False)
         self.service = Env.get_or("PROX_SERVICE", "PVE")
 
 
@@ -84,13 +92,13 @@ def key_value_pair(data: dict) -> str:
 
 class VM:
     proxmox: ProxmoxAPI
-    extra_info: dict
+    extra_info: Dict[Any, Any]
     config: dict
-    vmid: str
+    vmid: int
     node: str
     fs_info: dict
 
-    def __init__(self, vmid: str, node: str, proxmox: ProxmoxAPI) -> None:
+    def __init__(self, vmid: int, node: str, proxmox: ProxmoxAPI) -> None:
         if (vmid or node or proxmox) == False:
             raise ValueError("Invalid Argument")
         self.proxmox = proxmox
@@ -98,6 +106,7 @@ class VM:
         self.vmid = vmid
         self.config = {}
         self.fs_info = {}
+        self.extra_info = {}
 
     def get(self) -> Dict[str, Union[int, str]]:
         logger.info(f"Get data for {self.vmid}")
@@ -118,26 +127,7 @@ class VM:
 
     def get_fs_info(
         self,
-    ) -> Dict[
-        str,
-        Union[
-            List[
-                Union[
-                    Dict[
-                        str,
-                        Union[
-                            int, str, List[Dict[str, Union[Dict[str, int], int, str]]]
-                        ],
-                    ],
-                    Dict[
-                        str,
-                        Union[str, List[Dict[str, Union[Dict[str, int], int, str]]]],
-                    ],
-                ]
-            ],
-            Dict[str, Dict[str, str]],
-        ],
-    ]:
+    ):
         if self.has_agent() == False:
             return {}
 
@@ -180,12 +170,14 @@ class VM:
                         logger.debug(f"skipping {disk}")
                         continue
 
-                    unused_bytes = disk["total-bytes"] - disk["used-bytes"]
+                    unused_bytes = int(disk["total-bytes"]) - int(disk["used-bytes"])
                     extrainfo = {
                         "unused-bytes": unused_bytes,
-                        "used-bytes": disk["used-bytes"],
-                        "total-bytes": disk["total-bytes"],
-                        "precent-remaining": unused_bytes / disk["total-bytes"] * 100,
+                        "used-bytes": int(disk["used-bytes"]),
+                        "total-bytes": int(disk["total-bytes"]),
+                        "precent-remaining": unused_bytes
+                        / int(disk["total-bytes"])
+                        * 100,
                         "filesystem": disk["type"],
                     }
 
@@ -264,7 +256,9 @@ class QemuConfig:
 
 class CSV:
     @staticmethod
-    def output(filename: str, data: dict, heading: list) -> None:
+    def output(
+        filename: str, data: List[Dict[str, Union[int, str]]], heading: list
+    ) -> None:
         try:
             with open(filename, "w") as csvfile:
                 writer = csv.DictWriter(csvfile, fieldnames=heading)
