@@ -1,16 +1,18 @@
 import csv
 import logging
 import os
-import pp
+from typing import Dict, List, Union
 
 from proxmoxer import ProxmoxAPI
-from proxmoxer.core import ResourceException
+from proxmoxer.core import ProxmoxAPI, ResourceException
 
 logging.basicConfig(
-     level=logging.INFO, format="%(levelname)s:%(funcName)s:%(lineno)s: %(message)s"
+    level=logging.INFO, format="%(levelname)s:%(funcName)s:%(lineno)s: %(message)s"
 )
 
 logger = logging.getLogger(__name__)
+
+
 class Env:
     @staticmethod
     def get_or(value: str, default: str) -> str:
@@ -32,10 +34,10 @@ class Config:
     verify_ssl: bool
     service: str
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.from_env()
 
-    def from_env(self):
+    def from_env(self) -> None:
         self.url = Env.must_get("PROX_URL", "Must provide URL")
         self.user = Env.must_get("PROX_USER", "Must provide user")
         self.password = Env.must_get("PROX_PASSWORD", "Must provide password")
@@ -43,7 +45,7 @@ class Config:
         self.service = Env.get_or("PROX_SERVICE", "PVE")
 
 
-def get_proxmox(config: Config):
+def get_proxmox(config: Config) -> ProxmoxAPI:
     proxmox = ProxmoxAPI(
         host=config.url,
         user=config.user,
@@ -56,12 +58,12 @@ def get_proxmox(config: Config):
 
 class NodeList:
     list: list = []
-    proxmox: any
+    proxmox: ProxmoxAPI
 
-    def __init__(self, proxmox):
+    def __init__(self, proxmox: ProxmoxAPI) -> None:
         self.proxmox = proxmox
 
-    def get(self):
+    def get(self) -> List[str]:
         if len(self.list) != 0:
             return self.list
 
@@ -69,8 +71,9 @@ class NodeList:
             self.list.append(node["node"])
         return self.list
 
-def key_value_pair(data:dict) -> str:
-    acum:str = ""
+
+def key_value_pair(data: dict) -> str:
+    acum: str = ""
     for key in data:
         if acum != "":
             acum += ","
@@ -78,16 +81,17 @@ def key_value_pair(data:dict) -> str:
 
     return acum
 
+
 class VM:
-    proxmox: any
+    proxmox: ProxmoxAPI
     extra_info: dict
     config: dict
     vmid: str
     node: str
     fs_info: dict
 
-    def __init__(self, vmid:str, node:str, proxmox: any):
-        if ((vmid or node or proxmox) == False):
+    def __init__(self, vmid: str, node: str, proxmox: ProxmoxAPI) -> None:
+        if (vmid or node or proxmox) == False:
             raise ValueError("Invalid Argument")
         self.proxmox = proxmox
         self.node = node
@@ -95,24 +99,45 @@ class VM:
         self.config = {}
         self.fs_info = {}
 
-    def get(self):
+    def get(self) -> Dict[str, Union[int, str]]:
         logger.info(f"Get data for {self.vmid}")
         config = self.get_config()
         extra_info = self.get_extra_info()
 
-        return {**config,**extra_info}
+        return {**config, **extra_info}
 
-    def get_config(self):
+    def get_config(self) -> Dict[str, Union[int, str]]:
         if self.config:
             return self.config
 
         self.config = self.proxmox.nodes(self.node).qemu(self.vmid).config.get()
         return self.config
 
-    def has_agent(self):
-        return self.get_config()['agent'] == '1'
+    def has_agent(self) -> bool:
+        return self.get_config()["agent"] == "1"
 
-    def get_fs_info(self):
+    def get_fs_info(
+        self,
+    ) -> Dict[
+        str,
+        Union[
+            List[
+                Union[
+                    Dict[
+                        str,
+                        Union[
+                            int, str, List[Dict[str, Union[Dict[str, int], int, str]]]
+                        ],
+                    ],
+                    Dict[
+                        str,
+                        Union[str, List[Dict[str, Union[Dict[str, int], int, str]]]],
+                    ],
+                ]
+            ],
+            Dict[str, Dict[str, str]],
+        ],
+    ]:
         if self.has_agent() == False:
             return {}
 
@@ -120,62 +145,69 @@ class VM:
             return self.fs_info
 
         try:
-            self.fs_info = self.proxmox.get(f'nodes/{self.node}/qemu/{self.vmid}/agent/get-fsinfo')
+            self.fs_info = self.proxmox.get(
+                f"nodes/{self.node}/qemu/{self.vmid}/agent/get-fsinfo"
+            )
         except ResourceException as e:
-            logger.info(f"Can't get fs info for vm {self.vmid} on node {self.node}. Exception {e.content}")
+            logger.info(
+                f"Can't get fs info for vm {self.vmid} on node {self.node}. Exception {e.content}"
+            )
         return self.fs_info
 
-    def get_extra_info(self):
+    def get_extra_info(self) -> Dict[str, str]:
         fsinfo = self.get_fs_info()
 
         extraList = {}
 
         if fsinfo is not None:
 
-            if 'result' not in fsinfo:
+            if "result" not in fsinfo:
                 return {}
 
             logger.debug(fsinfo)
-            if 'error' in fsinfo['result']:
-                error = fsinfo['result']['error']
-                logger.error(f"error for vmid {self.vmid} class '{error['class']}' desc '{error['desc']}'")
+            if "error" in fsinfo["result"]:
+                error = fsinfo["result"]["error"]
+                logger.error(
+                    f"error for vmid {self.vmid} class '{error['class']}' desc '{error['desc']}'"
+                )
                 return {}
 
-            for disk in fsinfo['result']:
+            for disk in fsinfo["result"]:
                 logger.debug(disk)
-                if disk['type'] not in ['CDFS', 'UDF']:
+                if disk["type"] not in ["CDFS", "UDF"]:
 
-                    if 'total-bytes' not in disk:
+                    if "total-bytes" not in disk:
                         logger.debug(f"skipping {disk}")
                         continue
 
-                    unused_bytes = disk['total-bytes'] -  disk['used-bytes']
+                    unused_bytes = disk["total-bytes"] - disk["used-bytes"]
                     extrainfo = {
-                        'unused-bytes': unused_bytes,
-                        'used-bytes': disk['used-bytes'],
-                        'total-bytes': disk['total-bytes'],
-                        'precent-remaining': unused_bytes / disk['total-bytes'] * 100,
-                        'filesystem': disk['type']
+                        "unused-bytes": unused_bytes,
+                        "used-bytes": disk["used-bytes"],
+                        "total-bytes": disk["total-bytes"],
+                        "precent-remaining": unused_bytes / disk["total-bytes"] * 100,
+                        "filesystem": disk["type"],
                     }
 
-                    extraList |= {disk['mountpoint']:key_value_pair(extrainfo)}
+                    extraList |= {disk["mountpoint"]: key_value_pair(extrainfo)}
                 else:
                     logger.debug(f"skipping {disk['mountpoint']} type {disk['type']}")
         return extraList
 
+
 class VMList:
     node: NodeList
     list: list
-    proxmox: any
+    proxmox: ProxmoxAPI
 
-    def __init__(self, node: NodeList, proxmox: any):
+    def __init__(self, node: NodeList, proxmox: ProxmoxAPI) -> None:
         if len(node.get()) == 0:
             raise ValueError("Node list empty")
         self.node = node
         self.list = []
         self.proxmox = proxmox
 
-    def get(self):
+    def get(self) -> List[Dict[str, Union[int, str]]]:
         if len(self.list) != 0:
             return self.list
 
@@ -183,7 +215,7 @@ class VMList:
             for vm in self.proxmox.nodes(node).qemu.get():
                 logger.debug(vm)
                 vmid = int(vm["vmid"])
-                status = vm['status']
+                status = vm["status"]
                 if status != "running":
                     logger.info(f"skipping {vmid} status {status}")
                     continue
@@ -195,7 +227,7 @@ class VMList:
 
         return self.list
 
-    def normalise(self):
+    def normalise(self) -> None:
         keys = QemuConfig(self).get_keys()
         # Ensure all keys exist for each vm for consistency
         for vm in self.list:
@@ -203,20 +235,20 @@ class VMList:
                 if key not in vm:
                     vm[key] = ""
 
-    def keys(self):
+    def keys(self) -> List[str]:
         return QemuConfig(self).get_keys()
 
 
 class QemuConfig:
     keys: list
 
-    def __init__(self, vm: VMList):
+    def __init__(self, vm: VMList) -> None:
         if len(vm.get()) == 0:
             raise ValueError("VM list empty")
         self.vm = vm
         self.keys = []
 
-    def get_keys(self):
+    def get_keys(self) -> List[str]:
         if len(self.keys) != 0:
             return self.keys
 
@@ -232,7 +264,7 @@ class QemuConfig:
 
 class CSV:
     @staticmethod
-    def output(filename: str, data: dict, heading: list):
+    def output(filename: str, data: dict, heading: list) -> None:
         try:
             with open(filename, "w") as csvfile:
                 writer = csv.DictWriter(csvfile, fieldnames=heading)
@@ -243,7 +275,7 @@ class CSV:
             logger.exception("I/O error", e)
 
 
-def main():
+def main() -> None:
     config = Config()
     prox = get_proxmox(config)
     node = NodeList(prox)
@@ -253,4 +285,5 @@ def main():
     CSV.output("vmlist.csv", data, vm.keys())
 
 
-main()
+if __name__ == "__main__":
+    main()
